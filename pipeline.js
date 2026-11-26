@@ -178,11 +178,26 @@ function gridBoundariesFromLines(bin, w, h) {
   const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
   const hPeaks = peakCenters(horizontalLineMask(bin, w, h, minRun), w, h, "row", minRun * 1.2);
   const vPeaks = peakCenters(verticalLineMask(bin, w, h, minRun), w, h, "col", minRun * 1.2);
+  if (vPeaks.length === 10 && hPeaks.length === 10) return { xs: vPeaks.slice(), ys: hPeaks.slice() };
   if (vPeaks.length < 4 || hPeaks.length < 4) return null;
   const xs = fitGridLines(vPeaks, vPeaks[0], vPeaks[vPeaks.length - 1]);
   const ys = fitGridLines(hPeaks, hPeaks[0], hPeaks[hPeaks.length - 1]);
   if (!xs || !ys || xs.length !== 10 || ys.length !== 10) return null;
-  return { xs, ys };
+  return { xs: snapToPeaks(xs, vPeaks), ys: snapToPeaks(ys, hPeaks) };
+}
+
+function snapToPeaks(positions, groups) {
+  if (!groups || !groups.length || groups.length < 4) return positions;
+  const snapped = positions.map(p => {
+    let best = null, bestD = Infinity;
+    for (const g of groups) {
+      const d = Math.abs(g - p);
+      if (d < bestD) { bestD = d; best = g; }
+    }
+    return bestD <= 6 ? best : Math.round(p);
+  });
+  for (let i = 1; i < snapped.length; i++) if (snapped[i] <= snapped[i - 1]) return positions;
+  return snapped;
 }
 
 function lineSupport(bin, w, h, boundaries) {
@@ -205,6 +220,12 @@ function lineSupport(bin, w, h, boundaries) {
     if (acc >= width * 0.35) support++;
   }
   return support >= 15;
+}
+
+function detectBoundaries(bin, w, h) {
+  const mask = gridBoundariesFromLines(bin, w, h);
+  if (mask) return mask;
+  return findBandBoundaries(bin, w, h, { x0: 0, y0: 0, x1: w - 1, y1: h - 1 });
 }
 
 function plausibleGrid(bin, w, h, boundaries) {
@@ -233,7 +254,17 @@ function detectGridQuad(imageData) {
       [boundaries.xs[9], boundaries.ys[9]],
       [boundaries.xs[0], boundaries.ys[9]],
     ].map(rot.map).map(([x, y]) => [clamp(x, w), clamp(y, h)]);
-    return { quad };
+    const lines = {
+      v: boundaries.xs.map(x => {
+        const a = rot.map([x, boundaries.ys[0]]), b = rot.map([x, boundaries.ys[9]]);
+        return [a[0], a[1], b[0], b[1]];
+      }),
+      h: boundaries.ys.map(y => {
+        const a = rot.map([boundaries.xs[0], y]), b = rot.map([boundaries.xs[9], y]);
+        return [a[0], a[1], b[0], b[1]];
+      }),
+    };
+    return { quad, lines };
   }
   return null;
 }
@@ -296,6 +327,7 @@ function isUniform(lines) {
 }
 
 function resolveBoundaries(lines, lo, hi) {
+  if (lines && lines.length === 10) return lines.slice();
   const fit = fitGridLines(lines || [], lo, hi);
   if (fit) return fit;
   const span = hi - lo;
@@ -476,6 +508,6 @@ if (typeof module !== "undefined") {
     imageToBinary, otsuThreshold, findGridBox, findBandBoundaries,
     groupLinesFor, interpolate10, extractCells, cellRect, cropRoi,
     renderDigitCanvas, N, grayscaleToBin, evenBoundaries, quadToH, warpQuad,
-    detectGridQuad, rotateBinary,
+    detectGridQuad, rotateBinary, detectBoundaries,
   };
 }

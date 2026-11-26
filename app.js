@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 
 let grid, uncertain, imageFile;
-let sourceCanvas, sourceData, quad, draggingCorner = -1;
+let sourceCanvas, sourceData, quad, autoLines, draggingCorner = -1;
 
 window.addEventListener("error", e => {
   const status = $("status");
@@ -137,6 +137,7 @@ async function prepareSource() {
   quad = det
     ? det.quad
     : [[0, 0], [W, 0], [W, H], [0, H]];
+  autoLines = det && det.lines ? det.lines : null;
   renderOverlay();
   showStatus(det ? "Rejilla detectada: ajusta el # si no calza y pulsa Leer" : "Coloca las esquinas rojas sobre el sudoku y pulsa Leer", "ok");
 }
@@ -160,6 +161,7 @@ function setupOverlay() {
     handle.classList.add("handle");
     handle.addEventListener("pointerdown", e => {
       draggingCorner = +handle.dataset.i;
+      autoLines = null;
       handle.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
@@ -191,6 +193,12 @@ function renderOverlay() {
   const lines = $("gridLines").querySelectorAll("line");
   lines.forEach(line => {
     const i = +line.dataset.i;
+    const real = autoLines && autoLines[line.dataset.orient] && autoLines[line.dataset.orient][i];
+    if (real) {
+      line.setAttribute("x1", real[0]); line.setAttribute("y1", real[1]);
+      line.setAttribute("x2", real[2]); line.setAttribute("y2", real[3]);
+      return;
+    }
     const t = i / (N - 1);
     if (line.dataset.orient === "v") {
       const top = lerp(tl, tr, t), bottom = lerp(bl, br, t);
@@ -297,7 +305,9 @@ async function extract() {
   paint();
   try {
     const warped = warpQuad(sourceData, quad);
-    const boundaries = evenBoundaries(warped.w);
+    let boundaries = null;
+    try { boundaries = detectBoundaries(warped.bin, warped.w, warped.h); } catch (err) { boundaries = null; }
+    if (!boundaries) boundaries = evenBoundaries(warped.w);
     const cells = extractCells(warped.bin, warped.w, warped.h, boundaries);
     const worker = await getWorker();
     for (let r = 0; r < N; r++) {

@@ -368,6 +368,19 @@ test("pipeline: detectGridQuad endereza un sudoku rotado 6 grados", () => {
   });
 });
 
+test("pipeline: detectBoundaries respeta cuadrillas asimetricas", () => {
+  const W = 540, H = 540;
+  const xs = [0, 52, 96, 155, 198, 254, 297, 358, 401, 512];
+  const ys = [3, 61, 108, 149, 210, 247, 311, 352, 409, 505];
+  assert.strictEqual(xs.length, 10);
+  const bin = new Uint8Array(W * H);
+  for (const x of xs) for (let y = 0; y < H; y++) for (let t = 0; t < 3; t++) if (x + t < W) bin[y * W + x + t] = 1;
+  for (const y of ys) for (let x = 0; x < W; x++) for (let t = 0; t < 3; t++) if (y + t < H) bin[(y + t) * W + x] = 1;
+  const b = pipeline.detectBoundaries(bin, W, H);
+  b.xs.forEach((v, i) => assert.ok(Math.abs(v - xs[i]) <= 4, `xs[${i}]: ${v} vs ${xs[i]}`));
+  b.ys.forEach((v, i) => assert.ok(Math.abs(v - ys[i]) <= 4, `ys[${i}]: ${v} vs ${ys[i]}`));
+});
+
 async function run() {
   let failures = 0;
   for (const { name, fn } of tests) {
