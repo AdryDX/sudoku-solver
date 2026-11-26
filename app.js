@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("extractBtn").addEventListener("click", extract);
   $("solveBtn").addEventListener("click", solveSudoku);
   $("clearBtn").addEventListener("click", resetAll);
+  setTimeout(() => getWorker().catch(() => {}), 400);
   ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.classList.add("drag");
   }));
@@ -93,17 +94,55 @@ function setProgress(p) {
 let workerPromise = null;
 function getWorker() {
   if (!workerPromise) {
-    workerPromise = Tesseract.createWorker("eng", 1, {
-      logger: m => { if (m.status === "recognizing text") setProgress(0.25 + 0.7 * m.progress); }
-    }).then(async w => {
-      await w.setParameters({
-        tessedit_char_whitelist: "123456789",
-        tessedit_pageseg_mode: "10",
+    workerPromise = Tesseract.createWorker("eng", 1, {})
+      .then(async w => {
+        await w.setParameters({
+          tessedit_char_whitelist: "123456789",
+          tessedit_pageseg_mode: "7",
+        });
+        return w;
       });
-      return w;
-    });
   }
   return workerPromise;
+}
+
+const TILE = 64, GAP = 28, PITCH = TILE + GAP;
+
+function buildRowStrip(patches, row) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 9 * TILE + 10 * GAP;
+  canvas.height = TILE + 20;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let c = 0; c < N; c++) {
+    const patch = patches[row * N + c];
+    if (patch.empty || !patch.width || !patch.height) continue;
+    ctx.drawImage(renderDigitCanvas(patch, TILE), GAP + c * PITCH, 10);
+  }
+  return canvas;
+}
+
+function collectWords(data) {
+  const out = [];
+  (data.blocks || []).forEach(b =>
+    (b.paragraphs || []).forEach(p =>
+      (p.lines || []).forEach(l => (l.words || []).forEach(w => out.push(w)))));
+  return out;
+}
+
+function placeWords(words, row) {
+  for (const wd of words) {
+    const text = (wd.text || "").replace(/\D/g, "");
+    if (!text || !wd.bbox) continue;
+    const conf = wd.confidence ?? 0;
+    for (let i = 0; i < text.length; i++) {
+      const cx = wd.bbox.x0 + (wd.bbox.x1 - wd.bbox.x0) * (i + 0.5) / text.length;
+      const c = Math.max(0, Math.min(N - 1, Math.floor(cx / PITCH)));
+      grid[row][c] = +text[i];
+      if (conf < 55) uncertain.add(row + "," + c);
+    }
+  }
 }
 
 async function extract() {
@@ -125,23 +164,10 @@ async function extract() {
     const boundaries = findBandBoundaries(bin, w, h, box);
     const cells = extractCells(bin, w, h, boundaries);
     const worker = await getWorker();
-    for (let i = 0; i < cells.length; i++) {
-      const r = i / N | 0, c = i % N;
-      const patch = cells[i];
-      if (patch.empty || !patch.width || !patch.height) {
-        setProgress(0.1 + 0.8 * (i / cells.length));
-        continue;
-      }
-      setProgress(0.1 + 0.8 * (i / cells.length));
-      const digitCanvas = renderDigitCanvas(patch, 64);
-      const { data } = await worker.recognize(digitCanvas);
-      const text = (data.text || "").replace(/\D/g, "");
-      if (text.length === 1 && text >= "1" && text <= "9") {
-        grid[r][c] = +text;
-        if ((data.confidence ?? 100) < 55) uncertain.add(r + "," + c);
-      } else {
-        uncertain.add(r + "," + c);
-      }
+    for (let r = 0; r < N; r++) {
+      setProgress(0.1 + 0.82 * (r / N));
+      const { data } = await worker.recognize(buildRowStrip(cells, r), {}, { blocks: true });
+      placeWords(collectWords(data), r);
     }
     paint();
     $("solveBtn").disabled = false;
