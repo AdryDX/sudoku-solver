@@ -1,9 +1,15 @@
 "use strict";
 
-const N = 9;
 const $ = id => document.getElementById(id);
 
 let grid, uncertain, imageFile;
+
+window.addEventListener("error", e => {
+  const status = $("status");
+  if (!status) return;
+  status.textContent = `Error: ${e.message}`;
+  status.className = "error";
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   grid = Array.from({ length: N }, () => new Array(N).fill(0));
