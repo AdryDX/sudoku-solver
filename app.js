@@ -158,8 +158,7 @@ function setupOverlay() {
   const EDGE_CURSORS = ["ns-resize", "ew-resize", "ns-resize", "ew-resize"];
   const drag = { active: false, kind: null, idx: -1, startX: 0, startY: 0, orig: null };
 
-  const MARGIN_X = sourceCanvas.width * 0.75;
-  const MARGIN_Y = sourceCanvas.height * 0.75;
+  const MARGIN = 0.75;
   const toSource = e => {
     const rect = svg.getBoundingClientRect();
     return [
@@ -167,10 +166,13 @@ function setupOverlay() {
       (e.clientY - rect.top) * (sourceCanvas.height / rect.height),
     ];
   };
-  const clampPoint = p => [
-    Math.max(-MARGIN_X, Math.min(sourceCanvas.width + MARGIN_X, p[0])),
-    Math.max(-MARGIN_Y, Math.min(sourceCanvas.height + MARGIN_Y, p[1])),
-  ];
+  const clampPoint = p => {
+    const mx = sourceCanvas.width * MARGIN, my = sourceCanvas.height * MARGIN;
+    return [
+      Math.max(-mx, Math.min(sourceCanvas.width + mx, p[0])),
+      Math.max(-my, Math.min(sourceCanvas.height + my, p[1])),
+    ];
+  };
 
   const makeHandle = (kind, idx) => {
     const handle = document.createElementNS(NS, "circle");
