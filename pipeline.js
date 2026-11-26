@@ -46,12 +46,16 @@ function findGridBox(bin, w, h) {
     for (let y = 0; y < h; y++) acc += bin[y * w + x];
     colInk[x] = acc;
   }
-  const yBand = longestDenseBand(rowInk, 0.02 * w);
-  const xBand = longestDenseBand(colInk, 0.02 * h);
+  const yBand = longestDenseBand(rowInk, denseMin(w));
+  const xBand = longestDenseBand(colInk, denseMin(h));
   if (!yBand || !xBand) {
     throw new Error("No se localiza la rejilla del sudoku en la imagen");
   }
   return { x0: xBand[0], y0: yBand[0], x1: xBand[1], y1: yBand[1] };
+}
+
+function denseMin(axisLength) {
+  return Math.max(3, Math.round(0.008 * axisLength));
 }
 
 function longestDenseBand(values, minimum) {
@@ -67,6 +71,10 @@ function longestDenseBand(values, minimum) {
     }
   }
   return best;
+}
+
+function interpolate10(lines, lo, hi) {
+  return resolveBoundaries(lines, lo, hi);
 }
 
 function groupLinesFor(values, lo, hi, crossLen) {
@@ -111,9 +119,25 @@ function findBandBoundaries(bin, w, h, box) {
   const vLines = groupLinesFor(colSums, box.x0, box.x1, box.y1 - box.y0 + 1);
   const hLines = groupLinesFor(rowSums, box.y0, box.y1, box.x1 - box.x0 + 1);
   return {
-    xs: interpolate10(vLines, box.x0, box.x1),
-    ys: interpolate10(hLines, box.y0, box.y1),
+    xs: resolveBoundaries(vLines, box.x0, box.x1),
+    ys: resolveBoundaries(hLines, box.y0, box.y1),
   };
+}
+
+function isUniform(lines) {
+  if (lines.length < 3) return false;
+  const diffs = [];
+  for (let i = 1; i < lines.length; i++) diffs.push(lines[i] - lines[i - 1]);
+  const sorted = diffs.slice().sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (median <= 0) return false;
+  return diffs.every(d => Math.abs(d - median) <= 0.35 * median);
+}
+
+function resolveBoundaries(lines, lo, hi) {
+  if (lines && lines.length === 10 && isUniform(lines)) return lines;
+  const span = hi - lo;
+  return Array.from({ length: 10 }, (_, i) => Math.round(lo + (span * i) / 9));
 }
 
 const MIN_INK_RATIO = 0.02;

@@ -87,6 +87,28 @@ function setImage(file) {
   preview.onload = () => { $("extractBtn").disabled = false; };
 }
 
+function drawFramingOverlay(source, boundaries) {
+  const canvas = $("debugCanvas");
+  const maxSize = 320;
+  const scale = maxSize / Math.max(source.width, source.height);
+  canvas.width = source.width * scale;
+  canvas.height = source.height * scale;
+  canvas.style.display = "block";
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#ef5d6b";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const x = boundaries.xs[i] * scale, y = boundaries.ys[i] * scale;
+    ctx.moveTo(x, boundaries.ys[0] * scale - 6);
+    ctx.lineTo(x, boundaries.ys[N - 1] * scale + 6);
+    ctx.moveTo(boundaries.xs[0] * scale - 6, y);
+    ctx.lineTo(boundaries.xs[N - 1] * scale + 6, y);
+  }
+  ctx.stroke();
+}
+
 function setProgress(p) {
   $("progress").style.width = `${Math.round(p * 100)}%`;
 }
@@ -150,6 +172,11 @@ async function extract() {
   const status = $("status");
   status.textContent = "Analizando imagen...";
   status.className = "ok";
+  for (let r = 0; r < N; r++) grid[r].fill(0);
+  uncertain.clear();
+  const cellsEls = $("grid").children;
+  for (let i = 0; i < cellsEls.length; i++) cellsEls[i].dataset.solved = "";
+  paint();
   try {
     const bitmap = await createImageBitmap(imageFile);
     const scale = Math.min(1, 1000 / Math.max(bitmap.width, bitmap.height));
@@ -163,6 +190,7 @@ async function extract() {
     const box = findGridBox(bin, w, h);
     const boundaries = findBandBoundaries(bin, w, h, box);
     const cells = extractCells(bin, w, h, boundaries);
+    drawFramingOverlay(canvas, boundaries);
     const worker = await getWorker();
     for (let r = 0; r < N; r++) {
       setProgress(0.1 + 0.82 * (r / N));

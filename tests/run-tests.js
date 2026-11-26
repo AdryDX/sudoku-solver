@@ -173,6 +173,36 @@ test("pipeline: detecta rejilla descentrada", () => {
   assert.ok(Math.abs(((box.y0 + box.y1) / 2) - size / 2) < size * 0.06, "rejilla centrada vertical");
 });
 
+
+test("pipeline: lineas espurias por columna densa no deforman las fronteras", () => {
+  const size = 540, cell = size / 9;
+  const bin = new Uint8Array(size * size);
+  const line = (x0, y0, x1, y1) => {
+    for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
+      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+        bin[y * size + x] = 1;
+  };
+  for (let i = 0; i <= 9; i++) {
+    const p = Math.min(i * cell, size - 2);
+    line(p, 0, p, size - 1);
+    line(0, p, size - 1, p);
+  }
+  for (let r = 0; r < 9; r++) {
+    const x0 = 4 * cell + 22, x1 = 4 * cell + 38;
+    const y0 = r * cell + 18, y1 = r * cell + 44;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++)
+        bin[y * size + x] = 1;
+  }
+  const pipeline = require(pipelinePath);
+  const box = pipeline.findGridBox(bin, size, size);
+  const b = pipeline.findBandBoundaries(bin, size, size, box);
+  for (let i = 0; i < 10; i++) {
+    assert.ok(Math.abs(b.xs[i] - i * 60) <= 6, `xs[${i}] = ${b.xs[i]}, esperado ~${i * 60}`);
+    assert.ok(Math.abs(b.ys[i] - i * 60) <= 6, `ys[${i}] = ${b.ys[i]}, esperado ~${i * 60}`);
+  }
+});
+
 async function run() {
   let failures = 0;
   for (const { name, fn } of tests) {
