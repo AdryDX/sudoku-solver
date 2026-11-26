@@ -120,9 +120,9 @@ button.secondary { background: #33415c; }
 }
 .cell:nth-child(9n) { border-right: 0; }
 .cell:nth-last-child(-n+9) { border-bottom: 0; }
-.cell:nth-child(9n-2), .cell:nth-child(9n-5), .cell:nth-child(9n-8) { border-right: 3px solid var(--border); }
-.cell:nth-child(n+20):nth-child(-n+27),
-.cell:nth-child(n+47):nth-child(-n+54) { border-bottom: 3px solid var(--border); }
+.cell:nth-child(9n-6), .cell:nth-child(9n-3) { border-right: 3px solid var(--border); }
+.cell:nth-child(n+19):nth-child(-n+27),
+.cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 3px solid var(--border); }
 .cell.given { font-weight: 700; color: var(--text); }
 .cell.solved { color: var(--ok); }
 .cell.uncertain { background: #3d3622; }
