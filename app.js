@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 
 let grid, uncertain, imageFile;
-let sourceCanvas, sourceData, quad, autoLines, draggingCorner = -1;
+let sourceCanvas, sourceData, quad, autoLines;
 
 window.addEventListener("error", e => {
   const status = $("status");
@@ -154,34 +154,64 @@ function setupOverlay() {
       g.appendChild(line);
     }
   }
-  for (let i = 0; i < 4; i++) {
+  const EDGE_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
+  const EDGE_CURSORS = ["ns-resize", "ew-resize", "ns-resize", "ew-resize"];
+  const drag = { active: false, kind: null, idx: -1, startX: 0, startY: 0, orig: null };
+
+  const toSource = e => {
+    const rect = svg.getBoundingClientRect();
+    return [
+      (e.clientX - rect.left) * (sourceCanvas.width / rect.width),
+      (e.clientY - rect.top) * (sourceCanvas.height / rect.height),
+    ];
+  };
+  const clampPoint = p => [
+    Math.max(0, Math.min(sourceCanvas.width, p[0])),
+    Math.max(0, Math.min(sourceCanvas.height, p[1])),
+  ];
+
+  const makeHandle = (kind, idx) => {
     const handle = document.createElementNS(NS, "circle");
-    handle.dataset.i = i;
-    handle.setAttribute("r", 12);
+    handle.dataset.kind = kind;
+    handle.dataset.idx = idx;
+    handle.setAttribute("r", kind === "corner" ? 12 : 9);
     handle.classList.add("handle");
+    if (kind === "edge") handle.classList.add("edge");
+    handle.style.cursor = kind === "corner" ? "grab" : EDGE_CURSORS[idx];
     handle.addEventListener("pointerdown", e => {
-      draggingCorner = +handle.dataset.i;
+      drag.active = true;
+      drag.kind = kind;
+      drag.idx = idx;
+      [drag.startX, drag.startY] = toSource(e);
+      drag.orig = quad.map(p => p.slice());
       autoLines = null;
       handle.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
     handle.addEventListener("pointermove", e => {
-      if (draggingCorner !== +handle.dataset.i) return;
-      const rect = svg.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (sourceCanvas.width / rect.width);
-      const y = (e.clientY - rect.top) * (sourceCanvas.height / rect.height);
-      quad[draggingCorner] = [
-        Math.max(0, Math.min(sourceCanvas.width, x)),
-        Math.max(0, Math.min(sourceCanvas.height, y)),
-      ];
+      if (!drag.active || drag.kind !== kind || drag.idx !== idx) return;
+      const [x, y] = toSource(e);
+      const dx = x - drag.startX, dy = y - drag.startY;
+      if (kind === "corner") {
+        quad[idx] = clampPoint([drag.orig[idx][0] + dx, drag.orig[idx][1] + dy]);
+      } else {
+        const [a, b] = EDGE_PAIRS[idx];
+        quad[a] = clampPoint([drag.orig[a][0] + dx, drag.orig[a][1] + dy]);
+        quad[b] = clampPoint([drag.orig[b][0] + dx, drag.orig[b][1] + dy]);
+      }
       renderOverlay();
     });
-    handle.addEventListener("pointerup", e => {
-      draggingCorner = -1;
+    const release = e => {
+      if (drag.active && drag.kind === kind && drag.idx === idx) drag.active = false;
       try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
-    });
+    };
+    handle.addEventListener("pointerup", release);
+    handle.addEventListener("pointercancel", release);
     g.appendChild(handle);
-  }
+  };
+
+  for (let i = 0; i < 4; i++) makeHandle("corner", i);
+  for (let i = 0; i < 4; i++) makeHandle("edge", i);
 }
 
 function renderOverlay() {
@@ -212,10 +242,12 @@ function renderOverlay() {
   });
   const handles = $("gridLines").querySelectorAll("circle");
   const corners = [tl, tr, br, bl];
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const mids = [mid(tl, tr), mid(tr, br), mid(br, bl), mid(bl, tl)];
   handles.forEach(h => {
-    const [x, y] = corners[+h.dataset.i];
-    h.setAttribute("cx", x);
-    h.setAttribute("cy", y);
+    const pos = h.dataset.kind === "corner" ? corners[+h.dataset.idx] : mids[+h.dataset.idx];
+    h.setAttribute("cx", pos[0]);
+    h.setAttribute("cy", pos[1]);
   });
 }
 
