@@ -308,6 +308,12 @@ function placeWords(words, row) {
     const text = (wd.text || "").replace(/\D/g, "");
     if (!text || !wd.bbox) continue;
     const conf = wd.confidence ?? 0;
+    const spanCells = (wd.bbox.x1 - wd.bbox.x0) / PITCH;
+    if (text.length >= 2 && spanCells > 1.4) {
+      const c0 = Math.max(0, Math.floor(wd.bbox.x0 / PITCH));
+      const c1 = Math.min(N - 1, Math.floor(wd.bbox.x1 / PITCH));
+      for (let c = c0; c <= c1; c++) uncertain.add(row + "," + c);
+    }
     for (let i = 0; i < text.length; i++) {
       const cx = wd.bbox.x0 + (wd.bbox.x1 - wd.bbox.x0) * (i + 0.5) / text.length;
       const c = Math.max(0, Math.min(N - 1, Math.floor(cx / PITCH)));
@@ -323,16 +329,22 @@ async function ocrRow(worker, cells, row) {
   placeWords(collectWords(data), row);
   await worker.setParameters({ tessedit_pageseg_mode: "10" });
   for (let c = 0; c < N; c++) {
-    if (grid[row][c]) continue;
+    const key = row + "," + c;
+    const read = grid[row][c];
+    if (read && !uncertain.has(key)) continue;
     const patch = cells[row * N + c];
-    if (patch.empty || !patch.width || !patch.height) continue;
+    if (patch.empty || !patch.width || !patch.height) {
+      if (!read) uncertain.delete(key);
+      continue;
+    }
     const { data: single } = await worker.recognize(renderDigitCanvas(patch, TILE));
     const text = (single.text || "").replace(/\D/g, "");
     if (text) {
       grid[row][c] = +text[text.length - 1];
-      if ((single.confidence ?? 0) < 55) uncertain.add(row + "," + c);
-    } else {
-      uncertain.add(row + "," + c);
+      if ((single.confidence ?? 0) < 55) uncertain.add(key);
+      else uncertain.delete(key);
+    } else if (!read) {
+      uncertain.add(key);
     }
   }
   await worker.setParameters({ tessedit_pageseg_mode: "7" });
