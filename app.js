@@ -378,7 +378,7 @@ async function extract() {
     ];
     const quad2 = [topL, topR, quad[2].slice(), quad[3].slice()];
     const warped = warpQuad(sourceData, quad2, 450, 500);
-    const bd = boundariesDiscardRow(warped.bin, warped.w, warped.h);
+    const bd = warpBoundaries(warped.bin, warped.w, warped.h);
     const cells = extractCells(warped.bin, warped.w, warped.h, bd, N + 1, N);
     const worker = await getWorker();
     for (let r = 0; r < N; r++) {
