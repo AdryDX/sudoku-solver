@@ -154,9 +154,6 @@ function setupOverlay() {
       g.appendChild(line);
     }
   }
-  const discard = document.createElementNS(NS, "polygon");
-  discard.id = "discardBand";
-  g.appendChild(discard);
   const EDGE_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
   const EDGE_CURSORS = ["ns-resize", "ew-resize", "ns-resize", "ew-resize"];
   const drag = { active: false, kind: null, idx: -1, startX: 0, startY: 0, orig: null };
@@ -252,10 +249,6 @@ function renderOverlay() {
       line.setAttribute("x2", right[0]); line.setAttribute("y2", right[1]);
     }
   });
-  const upL = [tl[0] + (tl[0] - bl[0]) / N, tl[1] + (tl[1] - bl[1]) / N];
-  const upR = [tr[0] + (tr[0] - br[0]) / N, tr[1] + (tr[1] - br[1]) / N];
-  const discard = document.getElementById("discardBand");
-  if (discard) discard.setAttribute("points", `${upL},${upR},${tr},${tl}`);
   const handles = $("gridLines").querySelectorAll("circle");
   const corners = [tl, tr, br, bl];
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -287,16 +280,15 @@ function getWorker() {
 
 const TILE = 64, GAP = 28, PITCH = TILE + GAP;
 
-function buildRowStrip(patches, row, offsetRow = false) {
+function buildRowStrip(patches, row) {
   const canvas = document.createElement("canvas");
   canvas.width = 9 * TILE + 10 * GAP;
   canvas.height = TILE + 20;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const r = offsetRow ? row + 1 : row;
   for (let c = 0; c < N; c++) {
-    const patch = patches[r * N + c];
+    const patch = patches[row * N + c];
     if (patch.empty || !patch.width || !patch.height) continue;
     ctx.drawImage(renderDigitCanvas(patch, TILE), GAP + c * PITCH, 10);
   }
@@ -333,14 +325,14 @@ function placeWords(words, row) {
 
 async function ocrRow(worker, cells, row) {
   await worker.setParameters({ tessedit_pageseg_mode: "7" });
-  const { data } = await worker.recognize(buildRowStrip(cells, row, true), {}, { blocks: true });
+  const { data } = await worker.recognize(buildRowStrip(cells, row), {}, { blocks: true });
   placeWords(collectWords(data), row);
   await worker.setParameters({ tessedit_pageseg_mode: "10" });
   for (let c = 0; c < N; c++) {
     const key = row + "," + c;
     const read = grid[row][c];
     if (read && !uncertain.has(key)) continue;
-    const patch = cells[(row + 1) * N + c];
+    const patch = cells[row * N + c];
     if (patch.empty || !patch.width || !patch.height) {
       if (!read) uncertain.delete(key);
       continue;
@@ -368,18 +360,11 @@ async function extract() {
   for (let i = 0; i < cellsEls.length; i++) cellsEls[i].dataset.solved = "";
   paint();
   try {
-    const topL = [
-      quad[0][0] + (quad[0][0] - quad[3][0]) / N,
-      quad[0][1] + (quad[0][1] - quad[3][1]) / N,
-    ];
-    const topR = [
-      quad[1][0] + (quad[1][0] - quad[2][0]) / N,
-      quad[1][1] + (quad[1][1] - quad[2][1]) / N,
-    ];
-    const quad2 = [topL, topR, quad[2].slice(), quad[3].slice()];
-    const warped = warpQuad(sourceData, quad2, 450, 500);
-    const bd = boundariesDiscardRow(warped.bin, warped.w, warped.h);
-    const cells = extractCells(warped.bin, warped.w, warped.h, bd, N + 1, N);
+    const warped = warpQuad(sourceData, quad);
+    let boundaries = null;
+    try { boundaries = detectBoundaries(warped.bin, warped.w, warped.h); } catch (err) { boundaries = null; }
+    if (!boundaries) boundaries = evenBoundaries(warped.w);
+    const cells = extractCells(warped.bin, warped.w, warped.h, boundaries);
     const worker = await getWorker();
     for (let r = 0; r < N; r++) {
       setProgress(0.1 + 0.82 * (r / N));

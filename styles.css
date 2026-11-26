@@ -80,7 +80,6 @@ main {
   stroke-width: 2;
   cursor: grab;
 }
-#overlay .discard { fill: rgba(239,93,107,.07); stroke: #f7a1aa; stroke-width: 1.5; stroke-dasharray: 6 4; }
 #overlay .handle.edge { fill: #f7a1aa; }
 #overlay .handle.center { fill: #fff; stroke: #ef5d6b; stroke-width: 3; }
 #overlay .handle:active { cursor: grabbing; }
