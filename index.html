@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sudoku Solver</title>
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 <h1>Sudoku Solver</h1>
@@ -21,7 +21,7 @@
         <g id="gridLines"></g>
       </svg>
     </div>
-    <p id="hint" class="hint">Arrastra las 4 esquinas para calzar el # con el sudoku; las asas laterales mueven todo el borde (ancho/alto). Luego pulsa Leer.</p>
+    <p id="hint" class="hint">Arrastra las esquinas o los lados para calzar el # (9×9); el pin central mueve toda la rejilla, incluso fuera de la imagen. Luego pulsa Leer.</p>
     <button id="extractBtn" disabled>Leer sudoku</button>
     <div class="bar"><div id="progress"></div></div>
     <div id="status"></div>
@@ -43,8 +43,8 @@
   </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
-<script src="solver.js?v=11"></script>
-<script src="pipeline.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="solver.js?v=12"></script>
+<script src="pipeline.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

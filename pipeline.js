@@ -419,7 +419,7 @@ function solveLinear8(A, b) {
 function warpQuad(imageData, quad, S = 450) {
   const H = quadToH(quad, S);
   const { width, height, data } = imageData;
-  const gray = new Uint8Array(S * S);
+  const gray = new Uint8Array(S * S).fill(255);
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const w = H[6] * x + H[7] * y + 1;

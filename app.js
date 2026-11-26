@@ -146,7 +146,7 @@ function setupOverlay() {
   const svg = $("overlay");
   const g = $("gridLines");
   const NS = "http://www.w3.org/2000/svg";
-  for (let i = 0; i < N; i++) {
+  for (let i = 0; i <= N; i++) {
     for (const orient of ["v", "h"]) {
       const line = document.createElementNS(NS, "line");
       line.dataset.i = i;
@@ -158,6 +158,8 @@ function setupOverlay() {
   const EDGE_CURSORS = ["ns-resize", "ew-resize", "ns-resize", "ew-resize"];
   const drag = { active: false, kind: null, idx: -1, startX: 0, startY: 0, orig: null };
 
+  const MARGIN_X = sourceCanvas.width * 0.75;
+  const MARGIN_Y = sourceCanvas.height * 0.75;
   const toSource = e => {
     const rect = svg.getBoundingClientRect();
     return [
@@ -166,18 +168,19 @@ function setupOverlay() {
     ];
   };
   const clampPoint = p => [
-    Math.max(0, Math.min(sourceCanvas.width, p[0])),
-    Math.max(0, Math.min(sourceCanvas.height, p[1])),
+    Math.max(-MARGIN_X, Math.min(sourceCanvas.width + MARGIN_X, p[0])),
+    Math.max(-MARGIN_Y, Math.min(sourceCanvas.height + MARGIN_Y, p[1])),
   ];
 
   const makeHandle = (kind, idx) => {
     const handle = document.createElementNS(NS, "circle");
     handle.dataset.kind = kind;
     handle.dataset.idx = idx;
-    handle.setAttribute("r", kind === "corner" ? 12 : 9);
+    handle.setAttribute("r", kind === "corner" ? 12 : kind === "center" ? 10 : 9);
     handle.classList.add("handle");
     if (kind === "edge") handle.classList.add("edge");
-    handle.style.cursor = kind === "corner" ? "grab" : EDGE_CURSORS[idx];
+    if (kind === "center") handle.classList.add("center");
+    handle.style.cursor = kind === "corner" || kind === "center" ? "grab" : EDGE_CURSORS[idx];
     handle.addEventListener("pointerdown", e => {
       drag.active = true;
       drag.kind = kind;
@@ -194,10 +197,13 @@ function setupOverlay() {
       const dx = x - drag.startX, dy = y - drag.startY;
       if (kind === "corner") {
         quad[idx] = clampPoint([drag.orig[idx][0] + dx, drag.orig[idx][1] + dy]);
-      } else {
+      } else if (kind === "edge") {
         const [a, b] = EDGE_PAIRS[idx];
         quad[a] = clampPoint([drag.orig[a][0] + dx, drag.orig[a][1] + dy]);
         quad[b] = clampPoint([drag.orig[b][0] + dx, drag.orig[b][1] + dy]);
+      } else {
+        for (let i = 0; i < 4; i++)
+          quad[i] = [drag.orig[i][0] + dx, drag.orig[i][1] + dy];
       }
       renderOverlay();
     });
@@ -212,6 +218,7 @@ function setupOverlay() {
 
   for (let i = 0; i < 4; i++) makeHandle("corner", i);
   for (let i = 0; i < 4; i++) makeHandle("edge", i);
+  makeHandle("center", 0);
 }
 
 function renderOverlay() {
@@ -229,7 +236,7 @@ function renderOverlay() {
       line.setAttribute("x2", real[2]); line.setAttribute("y2", real[3]);
       return;
     }
-    const t = i / (N - 1);
+    const t = i / N;
     if (line.dataset.orient === "v") {
       const top = lerp(tl, tr, t), bottom = lerp(bl, br, t);
       line.setAttribute("x1", top[0]); line.setAttribute("y1", top[1]);
@@ -245,7 +252,10 @@ function renderOverlay() {
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   const mids = [mid(tl, tr), mid(tr, br), mid(br, bl), mid(bl, tl)];
   handles.forEach(h => {
-    const pos = h.dataset.kind === "corner" ? corners[+h.dataset.idx] : mids[+h.dataset.idx];
+    const kind = h.dataset.kind;
+    const pos = kind === "corner" ? corners[+h.dataset.idx]
+      : kind === "edge" ? mids[+h.dataset.idx]
+      : mid(tl, br);
     h.setAttribute("cx", pos[0]);
     h.setAttribute("cy", pos[1]);
   });

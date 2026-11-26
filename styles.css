@@ -81,6 +81,7 @@ main {
   cursor: grab;
 }
 #overlay .handle.edge { fill: #f7a1aa; }
+#overlay .handle.center { fill: #fff; stroke: #ef5d6b; stroke-width: 3; }
 #overlay .handle:active { cursor: grabbing; }
 .hint { color: var(--muted); font-size: 0.82rem; margin: 0.5rem 0 0; display: none; }
 button {
