@@ -12,7 +12,7 @@ from sudoku.solver import is_valid_grid, solve
 from sudoku.vision import VisionError, extract_grid
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR = BASE_DIR if (BASE_DIR / "index.html").exists() else BASE_DIR.parent
 
 app = FastAPI(title="Sudoku Solver", version="1.0.0")
 

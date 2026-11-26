@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sudoku Solver</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<h1>Sudoku Solver</h1>
+<p class="subtitle">Sube, arrastra o pega (Ctrl+V) una captura de un sudoku — todo se procesa en tu navegador</p>
+<main>
+  <section class="panel">
+    <h2>1. Imagen</h2>
+    <div id="dropzone">Haz clic, arrastra aqui o pega con Ctrl+V</div>
+    <input type="file" id="file" accept="image/*" hidden>
+    <img id="preview" alt="Vista previa">
+    <button id="extractBtn" disabled>Leer sudoku</button>
+    <div class="bar"><div id="progress"></div></div>
+    <div id="status"></div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Matriz y solucion</h2>
+    <div id="grid"></div>
+    <div class="actions">
+      <button id="solveBtn" disabled>Resolver</button>
+      <button id="clearBtn" class="secondary">Limpiar</button>
+    </div>
+    <div id="solveStatus"></div>
+    <div class="legend">
+      <span class="l-given">Original</span>
+      <span class="l-solved">Resuelto</span>
+      <span class="l-warn">Dudoso (edita si falla)</span>
+    </div>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
+<script src="solver.js"></script>
+<script src="pipeline.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
