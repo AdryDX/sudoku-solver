@@ -233,30 +233,33 @@ function detectGridColumns(bin, w, h) {
   return null;
 }
 
-function snapLinesToAnchors(peaks, anchors, tol) {
-  return anchors.map(a => {
-    let best = null, bestD = tol;
-    for (const p of peaks) {
-      const d = Math.abs(p - a);
-      if (d < bestD) { bestD = d; best = p; }
-    }
-    return best === null ? Math.round(a) : best;
-  });
-}
-
-function warpBoundaries(bin, w, h) {
+function boundariesDiscardRow(bin, w, h) {
+  const xs = detectGridColumns(bin, w, h) || evenBoundaries(w).xs;
   const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
-  const vPeaks = peakCenters(verticalLineMask(bin, w, h, minRun), w, h, "col", minRun * 1.2);
   const hPeaks = peakCenters(horizontalLineMask(bin, w, h, minRun), w, h, "row", minRun * 1.2);
-  const anchorsX = Array.from({ length: 10 }, (_, i) => (i * w) / 9);
-  const anchorsY = Array.from({ length: 11 }, (_, i) => (i * h) / 10);
-  const tolX = Math.max(6, (w / 9) * 0.14);
-  const tolY = Math.max(6, (h / 10) * 0.14);
-  const xs = snapLinesToAnchors(vPeaks, anchorsX, tolX);
-  const ys = snapLinesToAnchors(hPeaks, anchorsY, tolY);
-  for (let i = 1; i < xs.length; i++) if (xs[i] <= xs[i - 1]) xs[i] = xs[i - 1] + 1;
-  for (let i = 1; i < ys.length; i++) if (ys[i] <= ys[i - 1]) ys[i] = ys[i - 1] + 1;
-  return { xs, ys };
+  let ys;
+  if (hPeaks.length >= 10) {
+    const support = p => {
+      let acc = 0;
+      for (let y = Math.max(0, p - 1); y <= Math.min(h - 1, p + 1); y++)
+        for (let x = xs[0]; x <= xs[9]; x++) acc += bin[y * w + x];
+      return acc;
+    };
+    let best = null;
+    for (let s0 = 0; s0 + 9 < hPeaks.length; s0++) {
+      let sum = 0;
+      for (let k = 0; k < 10; k++) sum += support(hPeaks[s0 + k]);
+      if (!best || sum > best.sum) best = { s0, sum };
+    }
+    ys = hPeaks.slice(best.s0, best.s0 + 10);
+  } else {
+    const fit = hPeaks.length >= 4 ? fitGridLines(hPeaks, hPeaks[0], hPeaks[hPeaks.length - 1]) : null;
+    ys = fit && fit.length === 10
+      ? snapToPeaks(fit, hPeaks)
+      : Array.from({ length: 10 }, (_, i) => Math.round((h * i) / 9));
+  }
+  const discardTop = Math.max(0, ys[0] - (ys[1] - ys[0]));
+  return { xs, ys: [discardTop].concat(ys) };
 }
 
 function detectBoundaries(bin, w, h) {
@@ -549,6 +552,6 @@ if (typeof module !== "undefined") {
     imageToBinary, otsuThreshold, findGridBox, findBandBoundaries,
     groupLinesFor, interpolate10, extractCells, cellRect, cropRoi,
     renderDigitCanvas, N, grayscaleToBin, evenBoundaries, quadToH, warpQuad,
-    detectGridQuad, rotateBinary, detectBoundaries, warpBoundaries,
+    detectGridQuad, rotateBinary, detectBoundaries, boundariesDiscardRow,
   };
 }

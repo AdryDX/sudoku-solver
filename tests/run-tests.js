@@ -381,7 +381,7 @@ test("pipeline: detectBoundaries respeta cuadrillas asimetricas", () => {
   b.ys.forEach((v, i) => assert.ok(Math.abs(v - ys[i]) <= 4, `ys[${i}]: ${v} vs ${ys[i]}`));
 });
 
-test("pipeline: banda de descarte anclada al geometrico ignora basura superior", () => {
+test("pipeline: banda de descarte superior aisla la basura encima del grid", () => {
   const W = 450, H = 500;
   const bin = new Uint8Array(W * H);
   const xs = [0, 50, 100, 150, 200, 250, 300, 350, 400, 448];
@@ -390,7 +390,7 @@ test("pipeline: banda de descarte anclada al geometrico ignora basura superior",
   for (const y of ys) for (let x = 0; x < W; x++) for (let t = 0; t < 3; t++) if (y + t < H) bin[(y + t) * W + x] = 1;
   for (let x = 0; x < W; x++) { bin[20 * W + x] = 1; bin[21 * W + x] = 1; }
   for (let y = 25; y < 45; y++) for (let x = 60; x < 100; x++) bin[y * W + x] = 1;
-  const bd = pipeline.warpBoundaries(bin, W, H);
+  const bd = pipeline.boundariesDiscardRow(bin, W, H);
   assert.strictEqual(bd.ys.length, 11);
   for (let i = 0; i < 10; i++)
     assert.ok(Math.abs(bd.ys[i + 1] - ys[i]) <= 4, `ys[${i + 1}]: ${bd.ys[i + 1]} vs ${ys[i]}`);
