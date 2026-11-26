@@ -222,6 +222,46 @@ function lineSupport(bin, w, h, boundaries) {
   return support >= 15;
 }
 
+function detectGridColumns(bin, w, h) {
+  const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
+  const vPeaks = peakCenters(verticalLineMask(bin, w, h, minRun), w, h, "col", minRun * 1.2);
+  if (vPeaks.length === 10) return vPeaks.slice();
+  if (vPeaks.length >= 4) {
+    const xs = fitGridLines(vPeaks, vPeaks[0], vPeaks[vPeaks.length - 1]);
+    if (xs && xs.length === 10) return snapToPeaks(xs, vPeaks);
+  }
+  return null;
+}
+
+function boundariesDiscardRow(bin, w, h) {
+  const xs = detectGridColumns(bin, w, h) || evenBoundaries(w).xs;
+  const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
+  const hPeaks = peakCenters(horizontalLineMask(bin, w, h, minRun), w, h, "row", minRun * 1.2);
+  let ys;
+  if (hPeaks.length >= 10) {
+    const support = p => {
+      let acc = 0;
+      for (let y = Math.max(0, p - 1); y <= Math.min(h - 1, p + 1); y++)
+        for (let x = xs[0]; x <= xs[9]; x++) acc += bin[y * w + x];
+      return acc;
+    };
+    let best = null;
+    for (let s0 = 0; s0 + 9 < hPeaks.length; s0++) {
+      let sum = 0;
+      for (let k = 0; k < 10; k++) sum += support(hPeaks[s0 + k]);
+      if (!best || sum > best.sum) best = { s0, sum };
+    }
+    ys = hPeaks.slice(best.s0, best.s0 + 10);
+  } else {
+    const fit = hPeaks.length >= 4 ? fitGridLines(hPeaks, hPeaks[0], hPeaks[hPeaks.length - 1]) : null;
+    ys = fit && fit.length === 10
+      ? snapToPeaks(fit, hPeaks)
+      : Array.from({ length: 10 }, (_, i) => Math.round((h * i) / 9));
+  }
+  const discardTop = Math.max(0, ys[0] - (ys[1] - ys[0]));
+  return { xs, ys: [discardTop].concat(ys) };
+}
+
 function detectBoundaries(bin, w, h) {
   const mask = gridBoundariesFromLines(bin, w, h);
   if (mask) return mask;
@@ -382,8 +422,8 @@ function evenBoundaries(size) {
   return { xs, ys: xs.slice() };
 }
 
-function quadToH(quad, S) {
-  const corners = [[0, 0], [S, 0], [S, S], [0, S]];
+function quadToRectH(quad, W, H) {
+  const corners = [[0, 0], [W, 0], [W, H], [0, H]];
   const A = [], bvec = [];
   for (let i = 0; i < 4; i++) {
     const [wx, wy] = corners[i];
@@ -416,8 +456,12 @@ function solveLinear8(A, b) {
   return M.map(row => row[n]);
 }
 
-function warpQuad(imageData, quad, S = 450) {
-  const H = quadToH(quad, S);
+function quadToH(quad, S) {
+  return quadToRectH(quad, S, S);
+}
+
+function warpQuad(imageData, quad, S = 450, Sh = S) {
+  const H = quadToRectH(quad, S, Sh);
   const { width, height, data } = imageData;
   const gray = new Uint8Array(S * S).fill(255);
   for (let y = 0; y < S; y++) {
@@ -444,10 +488,10 @@ function cellRect(boundaries, r, c) {
   };
 }
 
-function extractCells(bin, w, h, boundaries) {
+function extractCells(bin, w, h, boundaries, rows = N, cols = N) {
   const cells = [];
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
       const rect = cellRect(boundaries, r, c);
       cells.push(cropRoi(bin, w, rect.x0, rect.y0, rect.x1, rect.y1));
     }
@@ -508,6 +552,6 @@ if (typeof module !== "undefined") {
     imageToBinary, otsuThreshold, findGridBox, findBandBoundaries,
     groupLinesFor, interpolate10, extractCells, cellRect, cropRoi,
     renderDigitCanvas, N, grayscaleToBin, evenBoundaries, quadToH, warpQuad,
-    detectGridQuad, rotateBinary, detectBoundaries,
+    detectGridQuad, rotateBinary, detectBoundaries, boundariesDiscardRow,
   };
 }
