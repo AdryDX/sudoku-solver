@@ -31,11 +31,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const dz = $("dropzone");
-  $("file").addEventListener("change", e => e.target.files[0] && setImage(e.target.files[0]));
+  $("file").addEventListener("change", e => {
+    e.target.files[0] && setImage(e.target.files[0]);
+    e.target.value = "";
+  });
   $("extractBtn").addEventListener("click", extract);
   $("solveBtn").addEventListener("click", solveSudoku);
   $("clearBtn").addEventListener("click", resetAll);
-  dz.addEventListener("click", () => $("file").click());
   ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.classList.add("drag");
   }));

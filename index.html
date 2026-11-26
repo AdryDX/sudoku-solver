@@ -12,8 +12,9 @@
 <main>
   <section class="panel">
     <h2>1. Imagen</h2>
-    <div id="dropzone">Haz clic, arrastra aqui o pega con Ctrl+V</div>
-    <input type="file" id="file" accept="image/*" hidden>
+    <label id="dropzone" for="file">Haz clic, arrastra aqui o pega con Ctrl+V
+      <input type="file" id="file" accept="image/*" class="file-input">
+    </label>
     <img id="preview" alt="Vista previa">
     <button id="extractBtn" disabled>Leer sudoku</button>
     <div class="bar"><div id="progress"></div></div>
