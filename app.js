@@ -3,6 +3,7 @@
 const $ = id => document.getElementById(id);
 
 let grid, uncertain, imageFile;
+let sourceCanvas, sourceData, quad, draggingCorner = -1;
 
 window.addEventListener("error", e => {
   const status = $("status");
@@ -44,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("extractBtn").addEventListener("click", extract);
   $("solveBtn").addEventListener("click", solveSudoku);
   $("clearBtn").addEventListener("click", resetAll);
-  setTimeout(() => getWorker().catch(() => {}), 400);
+
   ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.classList.add("drag");
   }));
@@ -56,6 +57,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
     if (item) setImage(item.getAsFile());
   });
+
+  setupOverlay();
+  setTimeout(() => getWorker().catch(() => {}), 400);
 });
 
 function resetAll() {
@@ -82,35 +86,121 @@ function paint() {
 function setImage(file) {
   imageFile = file;
   const preview = $("preview");
+  preview.onload = async () => {
+    document.querySelector(".preview-wrap").classList.add("shown");
+    $("hint").style.display = "block";
+    $("extractBtn").disabled = true;
+    try {
+      await prepareSource();
+    } catch (err) {
+      showStatus(err.message || String(err), "error");
+    }
+    $("extractBtn").disabled = false;
+  };
   preview.src = URL.createObjectURL(file);
-  preview.style.display = "block";
-  preview.onload = () => { $("extractBtn").disabled = false; };
 }
 
-function drawFramingOverlay(source, boundaries) {
-  const canvas = $("debugCanvas");
-  const maxSize = 320;
-  const scale = maxSize / Math.max(source.width, source.height);
-  canvas.width = source.width * scale;
-  canvas.height = source.height * scale;
-  canvas.style.display = "block";
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#ef5d6b";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  for (let i = 0; i < N; i++) {
-    const x = boundaries.xs[i] * scale, y = boundaries.ys[i] * scale;
-    ctx.moveTo(x, boundaries.ys[0] * scale - 6);
-    ctx.lineTo(x, boundaries.ys[N - 1] * scale + 6);
-    ctx.moveTo(boundaries.xs[0] * scale - 6, y);
-    ctx.lineTo(boundaries.xs[N - 1] * scale + 6, y);
-  }
-  ctx.stroke();
+function showStatus(text, cls) {
+  const status = $("status");
+  status.textContent = text;
+  status.className = cls || "";
 }
 
 function setProgress(p) {
   $("progress").style.width = `${Math.round(p * 100)}%`;
+}
+
+async function prepareSource() {
+  const img = $("preview");
+  const scale = Math.min(1, 1000 / Math.max(img.naturalWidth, img.naturalHeight));
+  sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = Math.round(img.naturalWidth * scale);
+  sourceCanvas.height = Math.round(img.naturalHeight * scale);
+  sourceCanvas.getContext("2d").drawImage(img, 0, 0, sourceCanvas.width, sourceCanvas.height);
+  sourceData = sourceCanvas.getContext("2d").getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  let box = null;
+  try {
+    const { bin } = imageToBinary(sourceData);
+    box = findGridBox(bin, sourceCanvas.width, sourceCanvas.height);
+  } catch (err) {
+    box = null;
+  }
+  const W = sourceCanvas.width, H = sourceCanvas.height;
+  quad = box
+    ? [[box.x0, box.y0], [box.x1 + 1, box.y0], [box.x1 + 1, box.y1 + 1], [box.x0, box.y1 + 1]]
+    : [[0, 0], [W, 0], [W, H], [0, H]];
+  renderOverlay();
+  showStatus(box ? "Rejilla detectada: ajusta el # si no calza y pulsa Leer" : "Coloca las esquinas rojas sobre el sudoku y pulsa Leer", "ok");
+}
+
+function setupOverlay() {
+  const svg = $("overlay");
+  const g = $("gridLines");
+  const NS = "http://www.w3.org/2000/svg";
+  for (let i = 0; i < N; i++) {
+    for (const orient of ["v", "h"]) {
+      const line = document.createElementNS(NS, "line");
+      line.dataset.i = i;
+      line.dataset.orient = orient;
+      g.appendChild(line);
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    const handle = document.createElementNS(NS, "circle");
+    handle.dataset.i = i;
+    handle.setAttribute("r", 12);
+    handle.classList.add("handle");
+    handle.addEventListener("pointerdown", e => {
+      draggingCorner = +handle.dataset.i;
+      handle.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    handle.addEventListener("pointermove", e => {
+      if (draggingCorner !== +handle.dataset.i) return;
+      const rect = svg.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (sourceCanvas.width / rect.width);
+      const y = (e.clientY - rect.top) * (sourceCanvas.height / rect.height);
+      quad[draggingCorner] = [
+        Math.max(0, Math.min(sourceCanvas.width, x)),
+        Math.max(0, Math.min(sourceCanvas.height, y)),
+      ];
+      renderOverlay();
+    });
+    handle.addEventListener("pointerup", e => {
+      draggingCorner = -1;
+      try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+    });
+    g.appendChild(handle);
+  }
+}
+
+function renderOverlay() {
+  if (!quad || !sourceCanvas) return;
+  const svg = $("overlay");
+  svg.setAttribute("viewBox", `0 0 ${sourceCanvas.width} ${sourceCanvas.height}`);
+  const [tl, tr, br, bl] = quad;
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const lines = $("gridLines").querySelectorAll("line");
+  lines.forEach(line => {
+    const i = +line.dataset.i;
+    const t = i / (N - 1);
+    if (line.dataset.orient === "v") {
+      const top = lerp(tl, tr, t), bottom = lerp(bl, br, t);
+      line.setAttribute("x1", top[0]); line.setAttribute("y1", top[1]);
+      line.setAttribute("x2", bottom[0]); line.setAttribute("y2", bottom[1]);
+    } else {
+      const left = lerp(tl, bl, t), right = lerp(tr, br, t);
+      line.setAttribute("x1", left[0]); line.setAttribute("y1", left[1]);
+      line.setAttribute("x2", right[0]); line.setAttribute("y2", right[1]);
+    }
+  });
+  const handles = $("gridLines").querySelectorAll("circle");
+  const corners = [tl, tr, br, bl];
+  handles.forEach(h => {
+    const [x, y] = corners[+h.dataset.i];
+    h.setAttribute("cx", x);
+    h.setAttribute("cy", y);
+  });
 }
 
 let workerPromise = null;
@@ -167,45 +257,52 @@ function placeWords(words, row) {
   }
 }
 
+async function ocrRow(worker, cells, row) {
+  await worker.setParameters({ tessedit_pageseg_mode: "7" });
+  const { data } = await worker.recognize(buildRowStrip(cells, row), {}, { blocks: true });
+  placeWords(collectWords(data), row);
+  await worker.setParameters({ tessedit_pageseg_mode: "10" });
+  for (let c = 0; c < N; c++) {
+    if (grid[row][c]) continue;
+    const patch = cells[row * N + c];
+    if (patch.empty || !patch.width || !patch.height) continue;
+    const { data: single } = await worker.recognize(renderDigitCanvas(patch, TILE));
+    const text = (single.text || "").replace(/\D/g, "");
+    if (text) {
+      grid[row][c] = +text[text.length - 1];
+      if ((single.confidence ?? 0) < 55) uncertain.add(row + "," + c);
+    } else {
+      uncertain.add(row + "," + c);
+    }
+  }
+  await worker.setParameters({ tessedit_pageseg_mode: "7" });
+}
+
 async function extract() {
+  if (!sourceData || !quad) return;
   $("extractBtn").disabled = true;
-  const status = $("status");
-  status.textContent = "Analizando imagen...";
-  status.className = "ok";
+  showStatus("Analizando imagen...", "ok");
   for (let r = 0; r < N; r++) grid[r].fill(0);
   uncertain.clear();
   const cellsEls = $("grid").children;
   for (let i = 0; i < cellsEls.length; i++) cellsEls[i].dataset.solved = "";
   paint();
   try {
-    const bitmap = await createImageBitmap(imageFile);
-    const scale = Math.min(1, 1000 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const { bin, w, h } = imageToBinary(
-      canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height)
-    );
-    const box = findGridBox(bin, w, h);
-    const boundaries = findBandBoundaries(bin, w, h, box);
-    const cells = extractCells(bin, w, h, boundaries);
-    drawFramingOverlay(canvas, boundaries);
+    const warped = warpQuad(sourceData, quad);
+    const boundaries = evenBoundaries(warped.w);
+    const cells = extractCells(warped.bin, warped.w, warped.h, boundaries);
     const worker = await getWorker();
     for (let r = 0; r < N; r++) {
       setProgress(0.1 + 0.82 * (r / N));
-      const { data } = await worker.recognize(buildRowStrip(cells, r), {}, { blocks: true });
-      placeWords(collectWords(data), r);
+      await ocrRow(worker, cells, r);
     }
     paint();
     $("solveBtn").disabled = false;
     const count = grid.flat().filter(v => v).length;
     const warn = uncertain.size ? ` — ${uncertain.size} dudosas marcadas, revisa antes de resolver` : "";
-    status.textContent = `Detectadas ${count} pistas${warn}`;
-    status.className = "ok";
+    showStatus(`Detectadas ${count} pistas${warn}. Puedes corregir celdas o reajustar el #.`, "ok");
   } catch (err) {
-    status.textContent = err.message || String(err);
-    status.className = "error";
+    showStatus(err.message || String(err), "error");
   } finally {
     setProgress(0);
     $("extractBtn").disabled = false;

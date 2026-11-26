@@ -7,13 +7,18 @@ lista para desplegarse en GitHub Pages.
 ## Cómo funciona
 
 1. **Imagen** — Sube, arrastra o pega (Ctrl+V) una captura del sudoku.
-2. **Visión (JS puro, `pipeline.js`)** — Escala la imagen, umbraliza con Otsu,
-   localiza la rejilla por proyecciones de tinta, detecta las líneas de la
-   cuadrícula y separa las 81 celdas (con margen anti-líneas).
-3. **OCR (`tesseract.js`)** — Cada dígito se normaliza a un lienzo 64×64 y se lee
-   con whitelist `1-9` (psm 10). Celdas con confianza baja quedan marcadas en amarillo.
-4. **Matriz editable** — Puedes corregir cualquier celda a mano antes de resolver.
-5. **Solver (`solver.js`)** — Backtracking con validación de fila/columna/bloque.
+2. **Calibración (opcional, `#`)** — Sobre la vista previa se dibuja una rejilla
+   roja con 4 esquinas arrastrables. Si la detección automática no cuadra,
+   ajusta las esquinas hasta que la rejilla encaje con el sudoku de la foto y
+   pulsa **Leer**. La imagen se endereza por homografía antes del OCR.
+3. **Visión (JS puro, `pipeline.js`)** — Escala la imagen, umbraliza con Otsu
+   (auto-invirtiendo el contraste si el tema es oscuro), localiza la rejilla por
+   proyecciones de tinta, filtra líneas espurias con RANSAC, detecta las líneas
+   de la cuadrícula y separa las 81 celdas (con margen anti-líneas).
+4. **OCR (`tesseract.js`)** — Dígito por dígito, normalizado a 64×64 con
+   whitelist `1-9`. Celdas con confianza baja quedan marcadas en amarillo.
+5. **Matriz editable** — Puedes corregir cualquier celda a mano antes de resolver.
+6. **Solver (`solver.js`)** — Backtracking con validación de fila/columna/bloque.
    Los datos que faltaban se pintan en verde.
 
 ## Uso online

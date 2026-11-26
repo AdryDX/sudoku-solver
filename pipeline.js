@@ -8,6 +8,10 @@ function imageToBinary(imageData) {
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
     gray[p] = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
   }
+  return grayscaleToBin(gray, width, height);
+}
+
+function grayscaleToBin(gray, width, height) {
   const threshold = otsuThreshold(gray);
   const bin = new Uint8Array(width * height);
   let ink = 0;
@@ -188,7 +192,64 @@ function fitGridLines(groups, lo, hi) {
   return bestWindow;
 }
 
-const MIN_INK_RATIO = 0.02;
+const MIN_INK_RATIO = 0.015;
+
+function evenBoundaries(size) {
+  const step = size / N;
+  const xs = Array.from({ length: N + 1 }, (_, i) => Math.round(i * step));
+  return { xs, ys: xs.slice() };
+}
+
+function quadToH(quad, S) {
+  const corners = [[0, 0], [S, 0], [S, S], [0, S]];
+  const A = [], bvec = [];
+  for (let i = 0; i < 4; i++) {
+    const [wx, wy] = corners[i];
+    const [sx, sy] = quad[i];
+    A.push([wx, wy, 1, 0, 0, 0, -wx * sx, -wy * sx]); bvec.push(sx);
+    A.push([0, 0, 0, wx, wy, 1, -wx * sy, -wy * sy]); bvec.push(sy);
+  }
+  const h = solveLinear8(A, bvec);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
+function solveLinear8(A, b) {
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) {
+      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    }
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const d = M[col][col] || 1e-12;
+    for (let c = col; c <= n; c++) M[col][c] /= d;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      if (!f) continue;
+      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  return M.map(row => row[n]);
+}
+
+function warpQuad(imageData, quad, S = 450) {
+  const H = quadToH(quad, S);
+  const { width, height, data } = imageData;
+  const gray = new Uint8Array(S * S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const w = H[6] * x + H[7] * y + 1;
+      const sx = Math.round((H[0] * x + H[1] * y + H[2]) / w);
+      const sy = Math.round((H[3] * x + H[4] * y + H[5]) / w);
+      if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+      const p = (sy * width + sx) * 4;
+      gray[y * S + x] = (data[p] * 299 + data[p + 1] * 587 + data[p + 2] * 114) / 1000;
+    }
+  }
+  return grayscaleToBin(gray, S, S);
+}
 
 function cellRect(boundaries, r, c) {
   const padX = (boundaries.xs[c + 1] - boundaries.xs[c]) * 0.14;
@@ -264,6 +325,6 @@ if (typeof module !== "undefined") {
   module.exports = {
     imageToBinary, otsuThreshold, findGridBox, findBandBoundaries,
     groupLinesFor, interpolate10, extractCells, cellRect, cropRoi,
-    renderDigitCanvas, N,
+    renderDigitCanvas, N, grayscaleToBin, evenBoundaries, quadToH, warpQuad,
   };
 }

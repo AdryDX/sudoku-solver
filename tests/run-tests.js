@@ -74,6 +74,18 @@ test("isValidGrid rechaza duplicados en fila/columna/bloque y valores fuera de r
 });
 
 
+
+function invert3(m) {
+  const a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8];
+  const A = e * i - f * h, B = c * h - b * i, C = b * f - c * e;
+  const det = a * A + d * B + g * C;
+  return [
+    A / det, B / det, C / det,
+    (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+    (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det,
+  ];
+}
+
 const EASY_CLUES = [
   [5, 3, 0, 0, 7, 0, 0, 0, 0],
   [6, 0, 0, 1, 9, 5, 0, 0, 0],
@@ -97,6 +109,9 @@ const PATTERNS = {
   8: [[1,1,1],[1,0,1],[1,1,1],[1,0,1],[1,1,1]],
   9: [[1,1,1],[1,0,1],[1,1,1],[0,0,1],[1,1,1]],
 };
+
+const BASE_BOARD = buildSyntheticBoard(EASY_CLUES, 540);
+const boardBin = BASE_BOARD.bin;
 
 function buildSyntheticBoard(puzzle, size) {
   const bin = new Uint8Array(size * size);
@@ -261,6 +276,38 @@ test("pipeline: tema oscuro (tinte invertido) se autocorrige", () => {
   const b = pipeline.findBandBoundaries(bin, tw, th, box);
   assert.ok(Math.abs(b.xs[5] - 5 * 60) <= 8, `xs[5] = ${b.xs[5]}`);
   assert.ok(Math.abs(b.ys[5] - 5 * 60) <= 8, `ys[5] = ${b.ys[5]}`);
+});
+
+
+test("pipeline: warp por homografia endereza un quad inclinado", () => {
+  const S = 450;
+  const pipeline = require(pipelinePath);
+  const quad = [[12, 8], [437, 34], [405, 452], [30, 428]];
+  const H = pipeline.quadToH(quad, S);
+  const Hinv = invert3(H);
+  const W = 500, HGT = 500;
+  const data = new Uint8ClampedArray(W * HGT * 4);
+  for (let y = 0; y < HGT; y++) {
+    for (let x = 0; x < W; x++) {
+      const w = Hinv[6] * x + Hinv[7] * y + Hinv[8];
+      const bx = Math.floor((Hinv[0] * x + Hinv[1] * y + Hinv[2]) / w * (540 / S));
+      const by = Math.floor((Hinv[3] * x + Hinv[4] * y + Hinv[5]) / w * (540 / S));
+      const p = (y * W + x) * 4;
+      const g = (bx >= 0 && by >= 0 && bx < 540 && by < 540 && boardBin[by * 540 + bx]) ? 0 : 255;
+      data[p] = data[p + 1] = data[p + 2] = g;
+      data[p + 3] = 255;
+    }
+  }
+  const warped = pipeline.warpQuad({ width: W, height: HGT, data }, quad);
+  assert.strictEqual(warped.w, S);
+  const boundaries = pipeline.evenBoundaries(S);
+  const cells = pipeline.extractCells(warped.bin, warped.w, warped.h, boundaries);
+  for (let i = 0; i < 81; i++) {
+    const r = i / 9 | 0, c = i % 9;
+    const filled = !cells[i].empty;
+    const expected = !!EASY_CLUES[r][c];
+    assert.strictEqual(filled, expected, `celda (${r},${c}): ${filled} != ${expected}`);
+  }
 });
 
 async function run() {
