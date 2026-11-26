@@ -88,6 +88,156 @@ function interpolate10(lines, lo, hi) {
   return resolveBoundaries(lines, lo, hi);
 }
 
+const ROTATION_STEPS = [-12, -9, -6, -3, 3, 6, 9, 12];
+
+function rotateBinary(bin, w, h, deg) {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const W2 = Math.ceil(Math.abs(w * cos) + Math.abs(h * sin));
+  const H2 = Math.ceil(Math.abs(w * sin) + Math.abs(h * cos));
+  const out = new Uint8Array(W2 * H2);
+  const cx = w / 2, cy = h / 2, cx2 = W2 / 2, cy2 = H2 / 2;
+  for (let y = 0; y < H2; y++) {
+    for (let x = 0; x < W2; x++) {
+      const dx = x - cx2, dy = y - cy2;
+      const sx = Math.round(cx + dx * cos + dy * sin);
+      const sy = Math.round(cy - dx * sin + dy * cos);
+      if (sx >= 0 && sy >= 0 && sx < w && sy < h && bin[sy * w + sx]) out[y * W2 + x] = 1;
+    }
+  }
+  return {
+    bin: out, w: W2, h: H2,
+    map: ([x, y]) => {
+      const dx = x - cx2, dy = y - cy2;
+      return [cx + dx * cos + dy * sin, cy - dx * sin + dy * cos];
+    },
+  };
+}
+
+function horizontalLineMask(bin, w, h, minRun) {
+  const mask = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let run = 0;
+    const row = y * w;
+    for (let x = 0; x <= w; x++) {
+      if (x < w && bin[row + x]) { run++; continue; }
+      if (run >= minRun) for (let k = x - run; k < x; k++) mask[row + k] = 1;
+      run = 0;
+    }
+  }
+  return mask;
+}
+
+function verticalLineMask(bin, w, h, minRun) {
+  const mask = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) {
+    let run = 0;
+    for (let y = 0; y <= h; y++) {
+      if (y < h && bin[y * w + x]) { run++; continue; }
+      if (run >= minRun) for (let k = y - run; k < y; k++) mask[k * w + x] = 1;
+      run = 0;
+    }
+  }
+  return mask;
+}
+
+function peakCenters(mask, w, h, axis, threshold) {
+  const len = axis === "row" ? h : w;
+  const ink = new Float64Array(len);
+  if (axis === "row") {
+    for (let y = 0; y < h; y++) {
+      let acc = 0;
+      const row = y * w;
+      for (let x = 0; x < w; x++) acc += mask[row + x];
+      ink[y] = acc;
+    }
+  } else {
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = 0; y < h; y++) acc += mask[y * w + x];
+      ink[x] = acc;
+    }
+  }
+  const centers = [];
+  let start = -1, last = -1;
+  for (let p = 0; p < len; p++) {
+    if (ink[p] >= threshold) {
+      if (start < 0) start = p;
+      last = p;
+    } else if (start >= 0 && p - last > 2) {
+      centers.push(Math.round((start + last) / 2));
+      start = -1;
+    }
+  }
+  if (start >= 0) centers.push(Math.round((start + last) / 2));
+  const ranked = centers.map(p => ({ p, ink: ink[p] })).sort((a, b) => b.ink - a.ink);
+  return ranked.slice(0, 40).map(o => o.p).sort((a, b) => a - b);
+}
+
+function gridBoundariesFromLines(bin, w, h) {
+  const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
+  const hPeaks = peakCenters(horizontalLineMask(bin, w, h, minRun), w, h, "row", minRun * 1.2);
+  const vPeaks = peakCenters(verticalLineMask(bin, w, h, minRun), w, h, "col", minRun * 1.2);
+  if (vPeaks.length < 4 || hPeaks.length < 4) return null;
+  const xs = fitGridLines(vPeaks, vPeaks[0], vPeaks[vPeaks.length - 1]);
+  const ys = fitGridLines(hPeaks, hPeaks[0], hPeaks[hPeaks.length - 1]);
+  if (!xs || !ys || xs.length !== 10 || ys.length !== 10) return null;
+  return { xs, ys };
+}
+
+function lineSupport(bin, w, h, boundaries) {
+  const { xs, ys } = boundaries;
+  const width = xs[9] - xs[0], height = ys[9] - ys[0];
+  if (width <= 0 || height <= 0) return false;
+  let support = 0;
+  for (const x of xs) {
+    let acc = 0;
+    for (let y = ys[0]; y <= ys[9]; y++) {
+      for (let xx = Math.max(0, x - 1); xx <= Math.min(w - 1, x + 1); xx++) acc += bin[y * w + xx];
+    }
+    if (acc >= height * 0.35) support++;
+  }
+  for (const y of ys) {
+    let acc = 0;
+    for (let x = xs[0]; x <= xs[9]; x++) {
+      for (let yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++) acc += bin[yy * w + x];
+    }
+    if (acc >= width * 0.35) support++;
+  }
+  return support >= 15;
+}
+
+function plausibleGrid(bin, w, h, boundaries) {
+  try {
+    const cells = extractCells(bin, w, h, boundaries);
+    let filled = 0;
+    for (const cell of cells) if (!cell.empty) filled++;
+    return filled >= 1 && filled <= 80;
+  } catch (err) {
+    return false;
+  }
+}
+
+function detectGridQuad(imageData) {
+  const { bin, w, h } = imageToBinary(imageData);
+  const frames = [{ bin, w, h, map: p => p.slice() }];
+  for (const deg of ROTATION_STEPS) frames.push(rotateBinary(bin, w, h, deg));
+  for (const rot of frames) {
+    const boundaries = gridBoundariesFromLines(rot.bin, rot.w, rot.h);
+    if (!boundaries || !lineSupport(rot.bin, rot.w, rot.h, boundaries)) continue;
+    if (!plausibleGrid(rot.bin, rot.w, rot.h, boundaries)) continue;
+    const clamp = (v, hiV) => Math.min(hiV - 1, Math.max(0, Math.round(v)));
+    const quad = [
+      [boundaries.xs[0], boundaries.ys[0]],
+      [boundaries.xs[9], boundaries.ys[0]],
+      [boundaries.xs[9], boundaries.ys[9]],
+      [boundaries.xs[0], boundaries.ys[9]],
+    ].map(rot.map).map(([x, y]) => [clamp(x, w), clamp(y, h)]);
+    return { quad };
+  }
+  return null;
+}
+
 function groupLinesFor(values, lo, hi, crossLen) {
   const min = 0.45 * crossLen;
   const groups = [];
@@ -326,5 +476,6 @@ if (typeof module !== "undefined") {
     imageToBinary, otsuThreshold, findGridBox, findBandBoundaries,
     groupLinesFor, interpolate10, extractCells, cellRect, cropRoi,
     renderDigitCanvas, N, grayscaleToBin, evenBoundaries, quadToH, warpQuad,
+    detectGridQuad, rotateBinary,
   };
 }

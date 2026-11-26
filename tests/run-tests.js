@@ -310,6 +310,64 @@ test("pipeline: warp por homografia endereza un quad inclinado", () => {
   }
 });
 
+test("pipeline: detectGridQuad halla el sudoku en una captura con elementos alrededor", () => {
+  const W = 800, H = 650;
+  const base = buildSyntheticBoard(EASY_CLUES, 540);
+  const bin = new Uint8Array(W * H);
+  const ox = 140, oy = 70;
+  for (let y = 0; y < 540; y++)
+    for (let x = 0; x < 540; x++)
+      if (base.bin[y * 540 + x]) bin[(oy + y) * W + ox + x] = 1;
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 220; i++) {
+    const x = Math.floor(rnd() * W), y = Math.floor(rnd() * H);
+    if (x >= ox - 10 && x <= ox + 550 && y >= oy - 10 && y <= oy + 550) continue;
+    const run = 20 + Math.floor(rnd() * 40);
+    for (let k = 0; k < run && x + k < W; k++) bin[y * W + x + k] = 1;
+  }
+  const data = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const g = bin[i] ? 0 : 255;
+    data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = g;
+    data[i * 4 + 3] = 255;
+  }
+  const det = pipeline.detectGridQuad({ width: W, height: H, data });
+  assert.ok(det, "detectGridQuad devolvio null");
+  const expected = [[ox, oy], [ox + 540, oy], [ox + 540, oy + 540], [ox, oy + 540]];
+  det.quad.forEach(([qx, qy], i) => {
+    const [ex, ey] = expected[i];
+    assert.ok(Math.hypot(qx - ex, qy - ey) <= 8, `esquina ${i}: (${qx},${qy}) vs (${ex},${ey})`);
+  });
+});
+
+test("pipeline: detectGridQuad endereza un sudoku rotado 6 grados", () => {
+  const W = 800, H = 800;
+  const base = buildSyntheticBoard(EASY_CLUES, 540);
+  const theta = 6 * Math.PI / 180;
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  const data = new Uint8ClampedArray(W * H * 4);
+  data.fill(255);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = x - 350, dy = y - 350;
+      const u = Math.round(270 + cos * dx + sin * dy);
+      const v = Math.round(270 - sin * dx + cos * dy);
+      if (u >= 0 && v >= 0 && u < 540 && v < 540 && base.bin[v * 540 + u]) {
+        const p = (y * W + x) * 4;
+        data[p] = data[p + 1] = data[p + 2] = 0;
+      }
+    }
+  }
+  const det = pipeline.detectGridQuad({ width: W, height: H, data });
+  assert.ok(det, "detectGridQuad devolvio null");
+  const expected = [[110, 53], [647, 110], [590, 647], [53, 590]];
+  det.quad.forEach(([qx, qy], i) => {
+    const [ex, ey] = expected[i];
+    assert.ok(Math.hypot(qx - ex, qy - ey) <= 20, `esquina ${i}: (${qx},${qy}) vs (${ex},${ey})`);
+  });
+});
+
 async function run() {
   let failures = 0;
   for (const { name, fn } of tests) {

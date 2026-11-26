@@ -118,19 +118,27 @@ async function prepareSource() {
   sourceCanvas.height = Math.round(img.naturalHeight * scale);
   sourceCanvas.getContext("2d").drawImage(img, 0, 0, sourceCanvas.width, sourceCanvas.height);
   sourceData = sourceCanvas.getContext("2d").getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  let box = null;
+  let det = null;
   try {
-    const { bin } = imageToBinary(sourceData);
-    box = findGridBox(bin, sourceCanvas.width, sourceCanvas.height);
+    det = detectGridQuad(sourceData);
   } catch (err) {
-    box = null;
+    det = null;
+  }
+  if (!det) {
+    try {
+      const { bin } = imageToBinary(sourceData);
+      const box = findGridBox(bin, sourceCanvas.width, sourceCanvas.height);
+      det = { quad: [[box.x0, box.y0], [box.x1 + 1, box.y0], [box.x1 + 1, box.y1 + 1], [box.x0, box.y1 + 1]] };
+    } catch (err) {
+      det = null;
+    }
   }
   const W = sourceCanvas.width, H = sourceCanvas.height;
-  quad = box
-    ? [[box.x0, box.y0], [box.x1 + 1, box.y0], [box.x1 + 1, box.y1 + 1], [box.x0, box.y1 + 1]]
+  quad = det
+    ? det.quad
     : [[0, 0], [W, 0], [W, H], [0, H]];
   renderOverlay();
-  showStatus(box ? "Rejilla detectada: ajusta el # si no calza y pulsa Leer" : "Coloca las esquinas rojas sobre el sudoku y pulsa Leer", "ok");
+  showStatus(det ? "Rejilla detectada: ajusta el # si no calza y pulsa Leer" : "Coloca las esquinas rojas sobre el sudoku y pulsa Leer", "ok");
 }
 
 function setupOverlay() {
