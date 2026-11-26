@@ -244,16 +244,89 @@ function snapLinesToAnchors(peaks, anchors, tol) {
   });
 }
 
+function lineWeight(bin, w, h, p, axis, lo, hi) {
+  let acc = 0;
+  if (axis === "row") {
+    for (let y = Math.max(0, p - 1); y <= Math.min(h - 1, p + 1); y++)
+      for (let x = lo; x <= hi; x++) acc += bin[y * w + x];
+  } else {
+    for (let x = Math.max(0, p - 1); x <= Math.min(w - 1, p + 1); x++)
+      for (let y = lo; y <= hi; y++) acc += bin[y * w + x];
+  }
+  return acc;
+}
+
+function leastSquaresLine(pairs) {
+  let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const [x, y, wt] of pairs) {
+    sw += wt; sx += wt * x; sy += wt * y;
+    sxx += wt * x * x; sxy += wt * x * y;
+  }
+  if (sw <= 0) return null;
+  const den = sw * sxx - sx * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const b = (sw * sxy - sx * sy) / den;
+  const a = (sy - b * sx) / sw;
+  return [a, b];
+}
+
+function anchorAlign(peaks, count, len, tol, weightFn) {
+  const anchors = Array.from({ length: count + 1 }, (_, i) => (i * len) / count);
+  const maxD = Math.floor(len / count / 2) - 1;
+  let bestD = 0, bestScore = -1;
+  for (let d = -maxD; d <= maxD; d++) {
+    let score = 0;
+    for (const p of peaks) {
+      const k = Math.round(((p - d) * count) / len);
+      if (k < 0 || k > count) continue;
+      if (Math.abs(p - d - anchors[k]) <= tol) score += weightFn(p);
+    }
+    if (score > bestScore) { bestScore = score; bestD = d; }
+  }
+  let final = anchors.map(a => a + bestD);
+  for (let iter = 0; iter < 2; iter++) {
+    const pairs = [];
+    for (const p of peaks) {
+      let bestK = -1, bestRes = tol;
+      for (let k = 0; k <= count; k++) {
+        const res = Math.abs(p - final[k]);
+        if (res < bestRes) { bestRes = res; bestK = k; }
+      }
+      if (bestK >= 0) pairs.push([bestK, p, weightFn(p)]);
+    }
+    if (pairs.length < 3) break;
+    const fit = leastSquaresLine(pairs);
+    if (!fit) break;
+    const [a, b] = fit;
+    const inliers = pairs.filter(([, p, wt]) => {
+      let bestK = -1, bestRes = tol;
+      for (let k = 0; k <= count; k++) {
+        const res = Math.abs(p - (a + b * k));
+        if (res < bestRes) { bestRes = res; bestK = k; }
+      }
+      return bestK >= 0 && wt > 0;
+    });
+    const refit = leastSquaresLine(inliers.length >= 3 ? inliers : pairs);
+    if (!refit) break;
+    final = Array.from({ length: count + 1 }, (_, k) => a + refit[1] * k);
+  }
+  return snapLinesToAnchors(peaks, final.map(v => Math.max(0, Math.min(len - 1, v))), tol);
+}
+
 function warpBoundaries(bin, w, h) {
   const minRun = Math.max(24, Math.round(0.08 * Math.max(w, h)));
   const vPeaks = peakCenters(verticalLineMask(bin, w, h, minRun), w, h, "col", minRun * 1.2);
   const hPeaks = peakCenters(horizontalLineMask(bin, w, h, minRun), w, h, "row", minRun * 1.2);
-  const anchorsX = Array.from({ length: 10 }, (_, i) => (i * w) / 9);
-  const anchorsY = Array.from({ length: 11 }, (_, i) => (i * h) / 10);
   const tolX = Math.max(6, (w / 9) * 0.14);
   const tolY = Math.max(6, (h / 10) * 0.14);
-  const xs = snapLinesToAnchors(vPeaks, anchorsX, tolX);
-  const ys = snapLinesToAnchors(hPeaks, anchorsY, tolY);
+  const xs = anchorAlign(
+    vPeaks, 9, w, tolX,
+    p => lineWeight(bin, w, h, p, "col", 0, h - 1)
+  );
+  const ys = anchorAlign(
+    hPeaks, 10, h, tolY,
+    p => lineWeight(bin, w, h, p, "row", xs[0], xs[9])
+  );
   for (let i = 1; i < xs.length; i++) if (xs[i] <= xs[i - 1]) xs[i] = xs[i - 1] + 1;
   for (let i = 1; i < ys.length; i++) if (ys[i] <= ys[i - 1]) ys[i] = ys[i - 1] + 1;
   return { xs, ys };
