@@ -73,6 +73,19 @@ test("isValidGrid rechaza duplicados en fila/columna/bloque y valores fuera de r
   assert.strictEqual(isValidGrid(Array.from({ length: 9 }, () => new Array(9).fill(0))).ok, true);
 });
 
+
+const EASY_CLUES = [
+  [5, 3, 0, 0, 7, 0, 0, 0, 0],
+  [6, 0, 0, 1, 9, 5, 0, 0, 0],
+  [0, 9, 8, 0, 0, 0, 0, 6, 0],
+  [8, 0, 0, 0, 6, 0, 0, 0, 3],
+  [4, 0, 0, 8, 0, 3, 0, 0, 1],
+  [7, 0, 0, 0, 2, 0, 0, 0, 6],
+  [0, 6, 0, 0, 0, 0, 2, 8, 0],
+  [0, 0, 0, 4, 1, 9, 0, 0, 5],
+  [0, 0, 0, 0, 8, 0, 0, 7, 9],
+];
+
 const PATTERNS = {
   1: [[0,1,0],[0,1,0],[0,1,0],[0,1,0],[0,1,0]],
   2: [[1,1,1],[0,0,1],[1,1,1],[1,0,0],[1,1,1]],
@@ -201,6 +214,53 @@ test("pipeline: lineas espurias por columna densa no deforman las fronteras", ()
     assert.ok(Math.abs(b.xs[i] - i * 60) <= 6, `xs[${i}] = ${b.xs[i]}, esperado ~${i * 60}`);
     assert.ok(Math.abs(b.ys[i] - i * 60) <= 6, `ys[${i}] = ${b.ys[i]}, esperado ~${i * 60}`);
   }
+});
+
+
+test("pipeline: RANSAC ignora grupos espurios y ancla a las lineas reales", () => {
+  const size = 540, cell = size / 9;
+  const bin = new Uint8Array(size * size);
+  const line = (x0, y0, x1, y1) => {
+    for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
+      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+        bin[y * size + x] = 1;
+  };
+  for (let i = 0; i <= 9; i++) {
+    const p = Math.min(i * cell, size - 2);
+    line(p, 0, p, size - 1);
+    line(0, p, size - 1, p);
+  }
+  for (let r = 0; r < 9; r++) {
+    const x0 = 4 * cell + 22, x1 = 4 * cell + 38;
+    const y0 = r * cell + 18, y1 = r * cell + 44;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++)
+        bin[y * size + x] = 1;
+  }
+  const pipeline = require(pipelinePath);
+  const box = pipeline.findGridBox(bin, size, size);
+  const b = pipeline.findBandBoundaries(bin, size, size, box);
+  for (let i = 0; i < 10; i++) {
+    assert.ok(Math.abs(b.xs[i] - i * 60) <= 6, `xs[${i}] = ${b.xs[i]}`);
+    assert.ok(Math.abs(b.ys[i] - i * 60) <= 6, `ys[${i}] = ${b.ys[i]}`);
+  }
+});
+
+test("pipeline: tema oscuro (tinte invertido) se autocorrige", () => {
+  const size = 540;
+  const base = buildSyntheticBoard(EASY_CLUES, size);
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    const v = base.bin[i] ? 0 : 255;
+    data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v;
+    data[i * 4 + 3] = 255;
+  }
+  const pipeline = require(pipelinePath);
+  const { bin, w: tw, h: th } = pipeline.imageToBinary({ width: size, height: size, data });
+  const box = pipeline.findGridBox(bin, tw, th);
+  const b = pipeline.findBandBoundaries(bin, tw, th, box);
+  assert.ok(Math.abs(b.xs[5] - 5 * 60) <= 8, `xs[5] = ${b.xs[5]}`);
+  assert.ok(Math.abs(b.ys[5] - 5 * 60) <= 8, `ys[5] = ${b.ys[5]}`);
 });
 
 async function run() {

@@ -10,7 +10,14 @@ function imageToBinary(imageData) {
   }
   const threshold = otsuThreshold(gray);
   const bin = new Uint8Array(width * height);
-  for (let i = 0; i < bin.length; i++) bin[i] = gray[i] < threshold ? 1 : 0;
+  let ink = 0;
+  for (let i = 0; i < bin.length; i++) {
+    bin[i] = gray[i] <= threshold ? 1 : 0;
+    ink += bin[i];
+  }
+  if (ink > bin.length * 0.5) {
+    for (let i = 0; i < bin.length; i++) bin[i] ^= 1;
+  }
   return { bin, w: width, h: height };
 }
 
@@ -135,9 +142,50 @@ function isUniform(lines) {
 }
 
 function resolveBoundaries(lines, lo, hi) {
-  if (lines && lines.length === 10 && isUniform(lines)) return lines;
+  const fit = fitGridLines(lines || [], lo, hi);
+  if (fit) return fit;
   const span = hi - lo;
   return Array.from({ length: 10 }, (_, i) => Math.round(lo + (span * i) / 9));
+}
+
+function fitGridLines(groups, lo, hi) {
+  if (groups.length < 4) return null;
+  const span = hi - lo;
+  let best = null;
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = groups.length - 1; j > i; j--) {
+      const wide = groups[j] - groups[i];
+      if (wide < span * 0.5) break;
+      for (let k = 4; k <= 12; k++) {
+        const pitch = wide / k;
+        if (pitch < span / 16 || pitch > span / 5) continue;
+        let hits = 0;
+        for (const g of groups) {
+          const n = (g - groups[i]) / pitch;
+          if (Math.abs(n - Math.round(n)) <= 3 / pitch) hits++;
+        }
+        if (!best || hits > best.hits || (hits === best.hits && pitch > best.pitch)) {
+          best = { hits, origin: groups[i], pitch };
+        }
+      }
+    }
+  }
+  if (!best || best.hits < 6) return null;
+  const positions = [];
+  for (let m = Math.floor((lo - best.origin) / best.pitch) - 1; ; m++) {
+    const pos = best.origin + m * best.pitch;
+    if (pos > hi + best.pitch * 0.3) break;
+    if (pos >= lo - best.pitch * 0.3) positions.push(Math.round(pos));
+    if (m > 40) break;
+  }
+  if (positions.length < 10) return null;
+  let bestWindow = null, bestScore = -1;
+  for (let s = 0; s + 9 < positions.length; s++) {
+    const first = positions[s], last = positions[s + 9];
+    const inside = Math.min(last, hi) - Math.max(first, lo);
+    if (inside > bestScore) { bestScore = inside; bestWindow = positions.slice(s, s + 10); }
+  }
+  return bestWindow;
 }
 
 const MIN_INK_RATIO = 0.02;
