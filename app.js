@@ -278,64 +278,50 @@ function getWorker() {
   return workerPromise;
 }
 
-const TILE = 64, GAP = 28, PITCH = TILE + GAP;
+const TILE = 128;
+const CONF_MIN = 55;
 
-function buildRowStrip(patches, row) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 9 * TILE + 10 * GAP;
-  canvas.height = TILE + 20;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let c = 0; c < N; c++) {
-    const patch = patches[row * N + c];
-    if (patch.empty || !patch.width || !patch.height) continue;
-    ctx.drawImage(renderDigitCanvas(patch, TILE), GAP + c * PITCH, 10);
-  }
-  return canvas;
-}
-
-function collectWords(data) {
-  const out = [];
-  (data.blocks || []).forEach(b =>
-    (b.paragraphs || []).forEach(p =>
-      (p.lines || []).forEach(l => (l.words || []).forEach(w => out.push(w)))));
-  return out;
-}
-
-function placeWords(words, row) {
-  for (const wd of words) {
-    const text = (wd.text || "").replace(/\D/g, "");
-    if (!text || !wd.bbox) continue;
-    const conf = wd.confidence ?? 0;
-    for (let i = 0; i < text.length; i++) {
-      const cx = wd.bbox.x0 + (wd.bbox.x1 - wd.bbox.x0) * (i + 0.5) / text.length;
-      const c = Math.max(0, Math.min(N - 1, Math.floor(cx / PITCH)));
-      grid[row][c] = +text[i];
-      if (conf < 55) uncertain.add(row + "," + c);
-    }
-  }
-}
-
-async function ocrRow(worker, cells, row) {
-  await worker.setParameters({ tessedit_pageseg_mode: "7" });
-  const { data } = await worker.recognize(buildRowStrip(cells, row), {}, { blocks: true });
-  placeWords(collectWords(data), row);
+// OCR individual de una casilla: psm 10 (un solo caracter) sobre la imagen
+// ampliada. Si hay incertidumbre (confianza baja o mas de un caracter leido)
+// se reintenta con psm 8 y se queda el resultado de mayor confianza,
+// marcando la casilla como dudosa si los intentos no coinciden.
+async function ocrCell(worker, patch) {
+  const canvas = renderDigitCanvas(patch, TILE);
   await worker.setParameters({ tessedit_pageseg_mode: "10" });
-  for (let c = 0; c < N; c++) {
-    if (grid[row][c]) continue;
-    const patch = cells[row * N + c];
-    if (patch.empty || !patch.width || !patch.height) continue;
-    const { data: single } = await worker.recognize(renderDigitCanvas(patch, TILE));
-    const text = (single.text || "").replace(/\D/g, "");
-    if (text) {
-      grid[row][c] = +text[text.length - 1];
-      if ((single.confidence ?? 0) < 55) uncertain.add(row + "," + c);
-    } else {
-      uncertain.add(row + "," + c);
+  const { data } = await worker.recognize(canvas);
+  const text = (data.text || "").replace(/\D/g, "");
+  const conf = data.confidence ?? 0;
+  if (!text) return { value: 0, conf, uncertain: true };
+  const value = +text[text.length - 1];
+  if (text.length === 1 && conf >= CONF_MIN) {
+    return { value, conf, uncertain: false };
+  }
+  await worker.setParameters({ tessedit_pageseg_mode: "8" });
+  const { data: retry } = await worker.recognize(canvas);
+  const rtext = (retry.text || "").replace(/\D/g, "");
+  const rconf = retry.confidence ?? 0;
+  await worker.setParameters({ tessedit_pageseg_mode: "10" });
+  if (!rtext) return { value, conf, uncertain: true };
+  const rvalue = +rtext[rtext.length - 1];
+  if (rvalue === value) {
+    return { value, conf: Math.max(conf, rconf), uncertain: Math.max(conf, rconf) < CONF_MIN };
+  }
+  return rconf > conf
+    ? { value: rvalue, conf: rconf, uncertain: true }
+    : { value, conf, uncertain: true };
+}
+
+async function ocrGrid(worker, cells) {
+  for (let r = 0; r < N; r++) {
+    setProgress(0.1 + 0.82 * ((r + 1) / N));
+    for (let c = 0; c < N; c++) {
+      const patch = cells[r * N + c];
+      if (patch.empty || !patch.width || !patch.height) continue;
+      const res = await ocrCell(worker, patch);
+      if (res.value) grid[r][c] = res.value;
+      if (!res.value || res.uncertain) uncertain.add(r + "," + c);
     }
   }
-  await worker.setParameters({ tessedit_pageseg_mode: "7" });
 }
 
 async function extract() {
@@ -354,10 +340,7 @@ async function extract() {
     if (!boundaries) boundaries = evenBoundaries(warped.w);
     const cells = extractCells(warped.bin, warped.w, warped.h, boundaries);
     const worker = await getWorker();
-    for (let r = 0; r < N; r++) {
-      setProgress(0.1 + 0.82 * (r / N));
-      await ocrRow(worker, cells, r);
-    }
+    await ocrGrid(worker, cells);
     paint();
     $("solveBtn").disabled = false;
     const count = grid.flat().filter(v => v).length;
